@@ -9,21 +9,26 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 
-# ===== โหลด token จาก .env =====
-load_dotenv()
+# ===== Load env only when .env exists (local dev) =====
+if os.path.exists(".env"):
+    load_dotenv()
+
 TOKEN = os.getenv("DISCORD_TOKEN")
+GUILD_ID_ENV = os.getenv("GUILD_ID")
 
 if not TOKEN:
-    raise RuntimeError("ไม่พบ DISCORD_TOKEN ในไฟล์ .env")
+    raise RuntimeError("Missing DISCORD_TOKEN from environment variables")
 
-# ===== ใส่ Server ID =====
-GUILD_ID = 1095677916144214026
+if not GUILD_ID_ENV:
+    raise RuntimeError("Missing GUILD_ID from environment variables")
+
+GUILD_ID = int(GUILD_ID_ENV)
 GUILD_OBJ = discord.Object(id=GUILD_ID)
 
-# ===== Role ที่ต้องการให้บอทส่ง DM =====
-ROLES_TO_NOTIFY = {"leader", "people"}  # พิมพ์เล็กทั้งหมด เพื่อเทียบง่าย
+# ===== Roles to notify by DM =====
+ROLES_TO_NOTIFY = {"leader", "people"}  # all lowercase for easy comparison
 
-# ===== ตำแหน่งไฟล์ CSV =====
+# ===== CSV paths =====
 BASE_DIR = Path(__file__).parent
 
 BUDDIES_CSV_PATH = BASE_DIR / "buddies.csv"
