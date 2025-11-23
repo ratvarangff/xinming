@@ -24,16 +24,16 @@ jobs:
       - name: Debug env
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          GUILD_ID: ${{ secrets.GUILD_ID }}
         run: |
           python - << 'EOF'
           import os
           print("Has DISCORD_TOKEN:", bool(os.getenv("DISCORD_TOKEN")))
+          print("Has GUILD_ID:", bool(os.getenv("GUILD_ID")))
           EOF
 
       - name: Run bot (Auto-stop after 7 hours)
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           GUILD_ID: ${{ secrets.GUILD_ID }}
-        run: |
-            timeout 7h python bot.py
-            
+        run: timeout 7h python bot.py
