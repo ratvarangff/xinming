@@ -2,7 +2,7 @@ name: Run Xinming Bot Weekly
 
 on:
   schedule:
-    - cron: "30 3 * * 0"
+    - cron: "30 3 * * 0"  # 10:30 AM Thailand time (UTC+7)
   workflow_dispatch:
 
 jobs:
@@ -21,9 +21,16 @@ jobs:
       - name: Install requirements
         run: pip install -r requirements.txt
 
-      - name: Create .env file
+      - name: Debug env
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
         run: |
-          echo "DISCORD_TOKEN=${{ secrets.DISCORD_TOKEN }}" >> .env
+          python - << 'EOF'
+          import os
+          print("Has DISCORD_TOKEN:", bool(os.getenv("DISCORD_TOKEN")))
+          EOF
 
       - name: Run bot (Auto-stop after 7 hours)
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
         run: timeout 7h python bot.py
