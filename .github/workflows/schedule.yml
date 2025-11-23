@@ -33,4 +33,7 @@ jobs:
       - name: Run bot (Auto-stop after 7 hours)
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
-        run: timeout 7h python bot.py
+          GUILD_ID: ${{ secrets.GUILD_ID }}
+        run: |
+            timeout 7h python bot.py
+            
