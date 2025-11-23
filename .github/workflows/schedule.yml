@@ -2,7 +2,7 @@ name: Run Xinming Bot Weekly
 
 on:
   schedule:
-    - cron: "30 3 * * 0"  # เริ่ม 10:30 ตามเวลาไทย (UTC+7) ทุกวันอาทิตย์
+    - cron: "30 3 * * 0"
   workflow_dispatch:
 
 jobs:
@@ -20,6 +20,10 @@ jobs:
 
       - name: Install requirements
         run: pip install -r requirements.txt
+
+      - name: Create .env file
+        run: |
+          echo "DISCORD_TOKEN=${{ secrets.DISCORD_TOKEN }}" >> .env
 
       - name: Run bot (Auto-stop after 7 hours)
         run: timeout 7h python bot.py
