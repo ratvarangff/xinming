@@ -30,8 +30,8 @@ GUILD_ID = int(GUILD_ID_ENV)
 GUILD_OBJ = discord.Object(id=GUILD_ID)
 
 # ===== Roles to notify =====
-# ROLES_TO_NOTIFY = {"leader", "people"}
-ROLES_TO_NOTIFY = {"test"}   # ใช้ role "test" ชั่วคราวสำหรับเทสต์
+ROLES_TO_NOTIFY = {"leader", "people"}
+# ROLES_TO_NOTIFY = {"test"}   # ใช้ role "test" ชั่วคราวสำหรับเทสต์
 
 # ===== CSV Storage =====
 =======
@@ -641,8 +641,7 @@ async def weekly_announcement_dm():
     while not bot.is_closed():
         now = datetime.now()
 
-        # เทสต์: ศุกร์ 15:00
-        if now.weekday() == 5 and now.hour == 15 and now.minute == 0:
+        if now.weekday() == 6 and now.hour == 10 and now.minute == 40:
             msg = (
                 "🌤 **สวัสดีเช้าวันอาทิตย์นะครับ!**\n\n"
                 "กำลังจะเริ่มต้นสัปดาห์ใหม่แล้ว ซินหมิงอยากชวนคุณมาวางแผนล่วงหน้า ✨\n\n"
@@ -661,8 +660,7 @@ async def daily_available_buddies_dm():
     while not bot.is_closed():
         now = datetime.now()
 
-        # เทสต์: ศุกร์ 15:05
-        if now.weekday() == 5 and now.hour == 15 and now.minute == 5:
+        if now.weekday() == 6 and now.hour == 17 and now.minute == 0:
             buddies = load_buddies()
             available = [b for b in buddies if is_available_status(b["status"])]
 
@@ -685,8 +683,7 @@ async def nightly_close_dm():
     while not bot.is_closed():
         now = datetime.now()
 
-        # เทสต์: ศุกร์ 15:08
-        if now.weekday() == 5 and now.hour == 15 and now.minute == 8:
+        if now.weekday() == 6 and now.hour == 20 and now.minute == 0:
             msg = (
                 "🌙 **ซินหมิงขอตัวไปพักแล้วนะครับ**\n"
                 "วันนี้ปิดรับการจองแล้วน้า 💙😴"
