@@ -1,0 +1,39 @@
+name: Run Xinming Bot Weekly
+
+on:
+  schedule:
+    - cron: "30 3 * * 0"  # 10:30 AM Thailand time (UTC+7)
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install requirements
+        run: pip install -r requirements.txt
+
+      - name: Debug env
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          GUILD_ID: ${{ secrets.GUILD_ID }}
+        run: |
+          python - << 'EOF'
+          import os
+          print("Has DISCORD_TOKEN:", bool(os.getenv("DISCORD_TOKEN")))
+          print("Has GUILD_ID:", bool(os.getenv("GUILD_ID")))
+          EOF
+
+      - name: Run bot (Auto-stop after 7 hours)
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          GUILD_ID: ${{ secrets.GUILD_ID }}
+        run: timeout 7h python bot.py
