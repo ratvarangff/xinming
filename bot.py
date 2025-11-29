@@ -660,17 +660,17 @@ async def daily_available_buddies_dm():
     while not bot.is_closed():
         now = datetime.now()
 
-        if now.weekday() == 6 and now.hour == 17 and now.minute == 0:
+        if now.weekday() == 6 and now.hour == 16 and now.minute == 0:
             buddies = load_buddies()
             available = [b for b in buddies if is_available_status(b["status"])]
 
             if available:
-                msg = "⏰ **อัปเดต 17:00**\nBuddy ที่ยังว่าง:\n\n"
+                msg = "⏰ **อัปเดต 16:00**\nBuddy ที่ยังว่าง:\n\n"
                 for b in available:
                     buddy_mention = f"<@{b['user_id']}>" if b["user_id"].isdigit() else b["user_id"]
                     msg += f"• {b['name']} ({buddy_mention}) | {b['time']} | {b['topic']}\n"
             else:
-                msg = "⏰ 17:00 — วันนี้ไม่มี Buddy ที่ว่างแล้วนะครับ 💙"
+                msg = "⏰ 16:00 — วันนี้ไม่มี Buddy ที่ว่างแล้วนะครับ 💙"
 
             await dm_roles(msg)
             await asyncio.sleep(60)
@@ -683,7 +683,7 @@ async def nightly_close_dm():
     while not bot.is_closed():
         now = datetime.now()
 
-        if now.weekday() == 6 and now.hour == 20 and now.minute == 0:
+        if now.weekday() == 6 and now.hour == 16 and now.minute == 30:
             msg = (
                 "🌙 **ซินหมิงขอตัวไปพักแล้วนะครับ**\n"
                 "วันนี้ปิดรับการจองแล้วน้า 💙😴"
