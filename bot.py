@@ -1,7 +1,7 @@
 import os
 import csv
 import asyncio
-from datetime import datetime, date
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -9,69 +9,53 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 
-# ===== โหลด token จาก .env =====
-load_dotenv()
+# ===== Load env only when .env exists =====
+if os.path.exists(".env"):
+    load_dotenv()
+
 TOKEN = os.getenv("DISCORD_TOKEN")
+GUILD_ID_ENV = os.getenv("GUILD_ID")
 
 if not TOKEN:
-    raise RuntimeError("ไม่พบ DISCORD_TOKEN ในไฟล์ .env")
+    raise RuntimeError("Missing DISCORD_TOKEN from environment variables")
+if not GUILD_ID_ENV:
+    raise RuntimeError("Missing GUILD_ID from environment variables")
 
-# ===== ใส่ Server ID =====
-GUILD_ID = 1095677916144214026
+GUILD_ID = int(GUILD_ID_ENV)
 GUILD_OBJ = discord.Object(id=GUILD_ID)
 
-# ===== Role ที่ต้องการให้บอทส่ง DM =====
-ROLES_TO_NOTIFY = {"leader", "people"}  # พิมพ์เล็กทั้งหมด เพื่อเทียบง่าย
+# ===== Roles to notify =====
+# ROLES_TO_NOTIFY = {"leader", "people"}
+ROLES_TO_NOTIFY = {"test"}   # ใช้ role "test" ชั่วคราวสำหรับเทสต์
 
-# ===== ตำแหน่งไฟล์ CSV =====
+# ===== CSV Storage =====
 BASE_DIR = Path(__file__).parent
-
 BUDDIES_CSV_PATH = BASE_DIR / "buddies.csv"
 BOOKINGS_CSV_PATH = BASE_DIR / "bookings.csv"
 
-# buddies.csv fields
 BUDDY_FIELDS = ["timestamp", "user_id", "name", "time", "topic", "status"]
-
-# bookings.csv fields
 BOOKING_FIELDS = [
-    "id",
-    "timestamp",
-    "buddy_id",
-    "buddy_name",
-    "budder_id",
-    "budder_name",
-    "time",
-    "topic",
-    "status",
-    "slot_time",
+    "id", "timestamp", "buddy_id", "buddy_name", "budder_id", "budder_name",
+    "time", "topic", "status", "slot_time",
 ]
 
-# ---------------------------------------------------
-# Utility helpers
-# ---------------------------------------------------
+# =================================================
+# Utility
+# =================================================
 
 def norm(s: str) -> str:
-    if s is None:
-        return ""
-    return "".join(s.split()).lower()
+    return "".join(s.split()).lower() if s else ""
 
-def is_available_status(status_value: str | None) -> bool:
-    if not status_value:
+def is_available_status(s: str | None):
+    if not s:
         return True
-    return status_value.strip().upper() == "AVAILABLE"
+    return s.strip().upper() == "AVAILABLE"
 
-# ---------------------------------------------------
-# CSV file helpers
-# ---------------------------------------------------
-
-def cleanup_old_file(path: Path, max_age_days: int = 14):
-    if not path.exists():
-        return
-    mtime = path.stat().st_mtime
-    file_date = datetime.fromtimestamp(mtime).date()
-    today = date.today()
-    if (today - file_date).days > max_age_days:
-        path.unlink()
+def reset_csv(path: Path, fields: list[str]):
+    """รีเซ็ตไฟล์ให้เป็นของใหม่ทุกครั้งที่บอทเริ่มรัน (เหมาะกับระบบรายสัปดาห์)"""
+    with path.open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
 
 def load_buddies():
     if not BUDDIES_CSV_PATH.exists():
@@ -84,16 +68,14 @@ def save_buddies(rows):
         writer = csv.DictWriter(f, fieldnames=BUDDY_FIELDS)
         writer.writeheader()
         for r in rows:
-            status_raw = r.get("status")
-            status_clean = status_raw if status_raw and status_raw.strip() else "AVAILABLE"
-
+            status = r.get("status") or "AVAILABLE"
             writer.writerow({
                 "timestamp": r.get("timestamp", ""),
                 "user_id": r.get("user_id", ""),
                 "name": r.get("name", ""),
                 "time": r.get("time", ""),
                 "topic": r.get("topic", ""),
-                "status": status_clean,
+                "status": status,
             })
 
 def load_bookings():
@@ -107,102 +89,118 @@ def save_bookings(rows):
         writer = csv.DictWriter(f, fieldnames=BOOKING_FIELDS)
         writer.writeheader()
         for r in rows:
-            writer.writerow({
-                "id": r.get("id", ""),
-                "timestamp": r.get("timestamp", ""),
-                "buddy_id": r.get("buddy_id", ""),
-                "buddy_name": r.get("buddy_name", ""),
-                "budder_id": r.get("budder_id", ""),
-                "budder_name": r.get("budder_name", ""),
-                "time": r.get("time", ""),
-                "topic": r.get("topic", ""),
-                "status": r.get("status", "PENDING"),
-                "slot_time": r.get("slot_time", ""),
-            })
+            writer.writerow(r)
 
 def next_booking_id(rows):
     if not rows:
         return 1
-    max_id = 0
-    for r in rows:
-        try:
-            max_id = max(max_id, int(r.get("id", 0)))
-        except:
-            pass
-    return max_id + 1
+    ids = [int(r["id"]) for r in rows if r.get("id", "").isdigit()]
+    return max(ids) + 1 if ids else 1
 
-# ---------------------------------------------------
-# DM helper
-# ---------------------------------------------------
+# =================================================
+# DM Helpers
+# =================================================
 
-async def dm_user(user_id_str: str, content: str):
-    if not user_id_str or not user_id_str.isdigit():
+async def dm_user(uid: str, text: str):
+    if not uid or not uid.isdigit():
         return
-    user_id = int(user_id_str)
+    uid_int = int(uid)
 
-    user_obj = bot.get_user(user_id)
-    if user_obj is None:
-        try:
-            user_obj = await bot.fetch_user(user_id)
-        except:
-            return
+    user = bot.get_user(uid_int) or await bot.fetch_user(uid_int)
+    if not user:
+        return
 
     try:
-        dm = await user_obj.create_dm()
-        await dm.send(content)
-    except discord.Forbidden:
-        pass
+        dm = await user.create_dm()
+        await dm.send(text)
     except:
         pass
 
-# ---------------------------------------------------
-# Update Buddy Slot
-# ---------------------------------------------------
+async def dm_roles(
+    message: str,
+    file_path: str | None = None,
+    exclude_user_id: str | None = None,
+):
+    """ส่ง DM ให้ทุกคนที่มี role ใน ROLES_TO_NOTIFY (ยกเว้น exclude_user_id ถ้ามี)"""
+    for guild in bot.guilds:
+        if guild.id != GUILD_ID:
+            continue
 
-def update_buddy_status(buddy_user_id: str, time_str: str, new_status: str):
+        for member in guild.members:
+            if member.bot:
+                continue
+
+            if exclude_user_id and str(member.id) == str(exclude_user_id):
+                continue
+
+            has_role = any(r.name.lower() in ROLES_TO_NOTIFY for r in member.roles)
+            if not has_role:
+                continue
+
+            try:
+                dm = await member.create_dm()
+                if file_path:
+                    file = discord.File(file_path)
+                    await dm.send(message, file=file)
+                else:
+                    await dm.send(message)
+            except:
+                continue
+
+# =================================================
+# Update Slot helpers
+# =================================================
+
+def update_buddy_status(uid: str, slot: str, new_status: str):
+    """อัปเดตสถานะ slot ของ Buddy (เช่น AVAILABLE / PENDING / CONFIRMED)"""
     buddies = load_buddies()
     changed = False
-
-    for row in buddies:
-        if row.get("user_id") == buddy_user_id and norm(row.get("time", "")) == norm(time_str):
-            row["status"] = new_status
+    for r in buddies:
+        if r["user_id"] == uid and norm(r["time"]) == norm(slot):
+            r["status"] = new_status
             changed = True
-
     if changed:
         save_buddies(buddies)
 
-# ---------------------------------------------------
+def remove_buddy_slot(uid: str, slot: str):
+    """
+    ลบ slot ของ Buddy ทิ้งไปเลย (ใช้กรณี Buddy เป็นคนยกเลิกเอง
+    แปลว่าเขาไม่สะดวกในช่วงเวลานั้นแล้ว)
+    """
+    buddies = load_buddies()
+    new_rows = [
+        r for r in buddies
+        if not (r["user_id"] == uid and norm(r["time"]) == norm(slot))
+    ]
+    if len(new_rows) != len(buddies):
+        save_buddies(new_rows)
+
+# =================================================
 # Bot Setup
-# ---------------------------------------------------
+# =================================================
 
 intents = discord.Intents.default()
-intents.message_content = True
-intents.guilds = True
 intents.members = True
-
+intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
-
-# ---------------------------------------------------
-# Commands
-# ---------------------------------------------------
 
 @bot.command()
 async def ping(ctx: commands.Context):
-    await ctx.send("心明 พร้อมช่วยแล้วครับ! ลองใช้ /register_buddy หรือ /book_buddy ดูได้เลยนะครับ")
+    await ctx.send("心明 พร้อมช่วยแล้วครับ!")
 
-# ---------------------------------------------------
+# =================================================
 # /register_buddy
-# ---------------------------------------------------
+# =================================================
 
 @bot.tree.command(
     name="register_buddy",
-    description="ลงทะเบียนเวลาว่างและหัวข้อที่สามารถเป็น Buddy ได้",
+    description="ลงทะเบียนเวลาว่างเพื่อเป็น Buddy",
     guild=GUILD_OBJ,
 )
 @app_commands.describe(
-    name="ชื่อเล่น Buddy เช่น buddy-front",
-    available_time="วันและเวลาว่าง เช่น อาทิตย์ 19.00-21.00",
-    topics="หัวข้อที่สอนได้ เช่น BM, Why I Join, ขายหนังสือ",
+    name="ชื่อ Buddy เช่น buddy-front",
+    available_time="วัน-เวลา เช่น อาทิตย์ 19.00-21.00",
+    topics="หัวข้อที่สอนได้ เช่น BM, Why I Join",
 )
 async def register_buddy(
     interaction: discord.Interaction,
@@ -210,104 +208,115 @@ async def register_buddy(
     available_time: str,
     topics: str,
 ):
-    user = interaction.user
-    user_id_str = str(user.id)
+    u = interaction.user
+    uid = str(u.id)
+
+    await interaction.response.defer(ephemeral=True)
 
     buddies = load_buddies()
 
-    # กันข้อมูลซ้ำ
-    for row in buddies:
-        if (
-            row.get("user_id") == user_id_str
-            and norm(row.get("time", "")) == norm(available_time)
-            and norm(row.get("topic", "")) == norm(topics)
-        ):
-            await interaction.response.send_message(
-                "⚠️ คุณได้ลงเวลานี้และหัวข้อนี้ไว้แล้ว ซินหมิง DM รายละเอียดให้แล้วนะครับ 📨",
+    # กันซ้ำ
+    for b in buddies:
+        if b["user_id"] == uid and norm(b["time"]) == norm(available_time):
+            await interaction.followup.send(
+                "⚠️ คุณลงเวลานี้ไว้แล้วครับ",
                 ephemeral=True,
-            )
-            await dm_user(
-                user_id_str,
-                "⚠️ คุณลงเวลานี้ + หัวข้อนี้ไว้แล้ว ไม่จำเป็นต้องลงซ้ำครับ",
             )
             return
 
     timestamp = datetime.now().isoformat(timespec="seconds")
 
-    new_row = {
+    buddies.append({
         "timestamp": timestamp,
-        "user_id": user_id_str,
+        "user_id": uid,
         "name": name,
         "time": available_time,
         "topic": topics,
         "status": "AVAILABLE",
-    }
-
-    buddies.append(new_row)
+    })
     save_buddies(buddies)
 
+    user_mention = f"<@{uid}>"
+
+    # DM ผู้ลงทะเบียน
     await dm_user(
-        user_id_str,
-        f"✅ ลงทะเบียน Buddy เรียบร้อย!\n\n"
-        f"ชื่อ: {name}\n"
+        uid,
+        f"✅ ลงทะเบียน Buddy สำเร็จ!\n"
+        f"Buddy: {name} ({user_mention})\n"
         f"เวลา: {available_time}\n"
         f"หัวข้อ: {topics}"
     )
 
-    await interaction.response.send_message(
-        "✅ คุณลงเวลา Buddy สำเร็จแล้วครับ ซินหมิงส่งข้อมูลไปที่ DM แล้ว 📨",
+    # แจ้งทุกคนใน role (ยกเว้นเจ้าตัวเอง)
+    await dm_roles(
+        message=(
+            "🆕 มี Buddy ลงทะเบียนเพิ่ม!\n"
+            f"• {name} ({user_mention})\n"
+            f"• เวลา: {available_time}\n"
+            f"• หัวข้อ: {topics}\n\n"
+            "ใช้ /book_buddy เพื่อจองได้เลย 💙"
+        ),
+        exclude_user_id=uid,
+    )
+
+    await interaction.followup.send(
+        "ลงทะเบียนสำเร็จแล้วครับ! ซินหมิงส่งรายละเอียดไปที่ DM ให้แล้ว 📨",
         ephemeral=True,
     )
 
-# ---------------------------------------------------
+# =================================================
 # /list_buddies
-# ---------------------------------------------------
+# =================================================
 
 @bot.tree.command(
     name="list_buddies",
-    description="ดูรายชื่อ Buddy ที่ยังว่าง (ส่งรายการไปที่ DM)",
+    description="ดูรายชื่อ Buddy ที่ว่าง",
     guild=GUILD_OBJ,
 )
 async def list_buddies(interaction: discord.Interaction):
-    user = interaction.user
-    user_id_str = str(user.id)
+    u = interaction.user
+    uid = str(u.id)
+
+    await interaction.response.defer(ephemeral=True)
 
     buddies = load_buddies()
-    available = [b for b in buddies if is_available_status(b.get("status"))]
+    available = [b for b in buddies if is_available_status(b["status"])]
 
     if not available:
-        await interaction.response.send_message("ตอนนี้ยังไม่มี Buddy ที่ว่างครับ", ephemeral=True)
-        await dm_user(user_id_str, "ตอนนี้ยังไม่มี Buddy ที่ว่างเลยครับ 🙏")
+        await dm_user(uid, "ตอนนี้ยังไม่มี Buddy ที่ว่างครับ")
+        await interaction.followup.send(
+            "ตอนนี้ยังไม่มี Buddy ที่ว่างครับ",
+            ephemeral=True,
+        )
         return
 
-    lines = []
+    msg = "📘 **Buddy ที่ยังว่าง**\n\n"
     for b in available:
-        buddy_id = b.get("user_id", "")
-        buddy_mention = f"<@{buddy_id}>" if buddy_id.isdigit() else buddy_id
-
-        lines.append(
-            f"• **{b.get('name','')}** ({buddy_mention})\n"
-            f"  เวลา: `{b.get('time','')}` | หัวข้อ: `{b.get('topic','')}`\n"
+        buddy_mention = f"<@{b['user_id']}>" if b["user_id"].isdigit() else b["user_id"]
+        msg += (
+            f"• **{b['name']}** ({buddy_mention}) "
+            f"เวลา: `{b['time']}` | หัวข้อ: `{b['topic']}`\n"
         )
 
-    final_text = "📘 **Buddy ที่ยังว่าง (AVAILABLE)**\n\n" + "\n".join(lines)
+    await dm_user(uid, msg)
+    await interaction.followup.send(
+        "ส่งรายการไปที่ DM แล้วครับ",
+        ephemeral=True,
+    )
 
-    await dm_user(user_id_str, final_text)
-    await interaction.response.send_message("📨 ส่งรายการ Buddy ไปที่ DM แล้วครับ", ephemeral=True)
-
-# ---------------------------------------------------
+# =================================================
 # /book_buddy
-# ---------------------------------------------------
+# =================================================
 
 @bot.tree.command(
     name="book_buddy",
-    description="Budder จองคิวเพื่อฝึกกับ Buddy",
+    description="จองคิว Buddy",
     guild=GUILD_OBJ,
 )
 @app_commands.describe(
     buddy_name="ชื่อ Buddy เช่น buddy-front",
-    booked_time="เวลาที่อยากนัดจริง เช่น อาทิตย์ 20.00-21.00",
-    topic="หัวข้อที่อยากซ้อม",
+    booked_time="เวลาที่ต้องการนัดจริง",
+    topic="หัวข้อ",
 )
 async def book_buddy(
     interaction: discord.Interaction,
@@ -316,183 +325,306 @@ async def book_buddy(
     topic: str,
 ):
     budder = interaction.user
-    budder_id_str = str(budder.id)
+    budder_id = str(budder.id)
+    budder_mention = f"<@{budder_id}>"
+
+    await interaction.response.defer(ephemeral=True)
 
     buddies = load_buddies()
-
-    # หา Buddy ตามชื่อ + ต้อง AVAILABLE
     matches = [
         b for b in buddies
-        if norm(b.get("name", "")) == norm(buddy_name)
-        and is_available_status(b.get("status"))
+        if norm(b["name"]) == norm(buddy_name) and is_available_status(b["status"])
     ]
 
     if not matches:
-        await interaction.response.send_message(
-            "❌ ไม่พบ Buddy ชื่อนี้ที่ยังว่างครับ เช็คชื่อใน /list_buddies ก่อนนะ",
+        await interaction.followup.send(
+            "ไม่พบ Buddy ชื่อนี้ที่ยังว่างครับ ลองตรวจสอบชื่อใน /list_buddies อีกครั้งนะครับ",
             ephemeral=True,
         )
-        await dm_user(budder_id_str, "❌ ไม่พบ Buddy ชื่อนี้ที่ยังว่างครับ")
-        return
-
-    if len(matches) > 1:
-        await interaction.response.send_message(
-            "⚠️ พบชื่อ Buddy ซ้ำหลายคน กรุณาระบุชื่อให้ชัดเจนกว่านี้นะครับ",
-            ephemeral=True,
-        )
-        await dm_user(budder_id_str, "⚠️ พบ Buddy ชื่อนี้หลาย slot ครับ")
         return
 
     buddy = matches[0]
-    buddy_id_str = buddy.get("user_id", "")
-    buddy_slot_time = buddy.get("time", "")
-    buddy_display_name = buddy.get("name", "")
+    buddy_id = buddy["user_id"]
+    buddy_mention = f"<@{buddy_id}>"
 
     bookings = load_bookings()
-
-    # กัน double booking เวลาเดียวกัน
     for bk in bookings:
         if (
-            bk.get("buddy_id") == buddy_id_str
-            and norm(bk.get("time", "")) == norm(booked_time)
-            and bk.get("status") in ("PENDING", "CONFIRMED")
+            bk["buddy_id"] == buddy_id
+            and norm(bk["time"]) == norm(booked_time)
+            and bk["status"] in ("PENDING", "CONFIRMED")
         ):
-            await interaction.response.send_message(
-                "⚠️ Buddy มีคิวเวลาเดียวกันอยู่แล้วครับ",
+            await interaction.followup.send(
+                "Buddy มีคิวเวลาเดียวกันอยู่แล้วครับ",
                 ephemeral=True,
             )
-            await dm_user(budder_id_str, "⚠️ เวลานี้ Buddy ถูกจองแล้ว")
             return
 
     booking_id = next_booking_id(bookings)
-    timestamp = datetime.now().isoformat(timespec="seconds")
 
-    new_booking = {
+    bookings.append({
         "id": str(booking_id),
-        "timestamp": timestamp,
-        "buddy_id": buddy_id_str,
-        "buddy_name": buddy_display_name,
-        "budder_id": budder_id_str,
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "buddy_id": buddy_id,
+        "buddy_name": buddy["name"],
+        "budder_id": budder_id,
         "budder_name": budder.display_name,
         "time": booked_time,
         "topic": topic,
         "status": "PENDING",
-        "slot_time": buddy_slot_time,
-    }
-
-    bookings.append(new_booking)
+        "slot_time": buddy["time"],
+    })
     save_bookings(bookings)
 
-    update_buddy_status(buddy_id_str, buddy_slot_time, "PENDING")
+    update_buddy_status(buddy_id, buddy["time"], "PENDING")
 
-    # DM Buddy
+    # DM ถึง Buddy (ให้เห็นทั้งชื่อและ mention ของ Budder)
     await dm_user(
-        buddy_id_str,
-        f"📩 มีคำขอจองคิวจาก **{budder.display_name}**\n"
+        buddy_id,
+        "📩 มีคำขอจองคิวใหม่!\n\n"
+        f"จาก: {budder.display_name} ({budder_mention})\n"
         f"เวลา (นัดจริง): {booked_time}\n"
         f"หัวข้อ: {topic}\n"
-        f"Booking ID: `{booking_id}`\n\n"
-        f"ยืนยันได้ที่คำสั่ง `/confirm_booking booking_id:{booking_id}`"
+        f"Booking ID: {booking_id}\n\n"
+        "หากต้องการยืนยันคิวนี้ ใช้คำสั่ง: `/confirm_booking`"
     )
 
-    # DM Budder
+    # DM ถึง Budder (ให้เห็นทั้งชื่อและ mention ของ Buddy)
     await dm_user(
-        budder_id_str,
-        f"✅ ซินหมิงบันทึกคำขอจองคิวแล้ว!\n\n"
-        f"Buddy: {buddy_display_name}\n"
-        f"เวลา: {booked_time}\n"
+        budder_id,
+        "✅ ซินหมิงบันทึกคำขอจองคิวของคุณเรียบร้อยแล้ว!\n\n"
+        f"Buddy: {buddy['name']} ({buddy_mention})\n"
+        f"เวลา (นัดจริง): {booked_time}\n"
         f"หัวข้อ: {topic}\n"
-        f"Booking ID: `{booking_id}`\n"
-        "ตอนนี้สถานะเป็น **PENDING**"
+        f"Booking ID: {booking_id}\n"
+        "สถานะตอนนี้: PENDING (รอ Buddy ยืนยัน)\n"
     )
 
-    await interaction.response.send_message(
-        "✅ จองคิวเรียบร้อยครับ ซินหมิงส่งรายละเอียดไปที่ DM แล้ว",
+    await interaction.followup.send(
+        "จองคิวสำเร็จแล้วครับ! ซินหมิงส่งรายละเอียดไปที่ DM ให้แล้ว 📨",
         ephemeral=True,
     )
 
-# ---------------------------------------------------
+# =================================================
 # /confirm_booking
-# ---------------------------------------------------
+# =================================================
 
 @bot.tree.command(
     name="confirm_booking",
-    description="Buddy ใช้คำสั่งนี้เพื่อยืนยันคิวที่ Budder จอง",
+    description="Buddy ยืนยันคิว",
     guild=GUILD_OBJ,
 )
 @app_commands.describe(
-    booking_id="รหัสการจอง (ตัวเลข)"
+    booking_id="หมายเลข booking",
 )
 async def confirm_booking(
     interaction: discord.Interaction,
     booking_id: int,
 ):
     buddy = interaction.user
-    buddy_id_str = str(buddy.id)
+    buddy_id = str(buddy.id)
+    buddy_mention = f"<@{buddy_id}>"
+
+    await interaction.response.defer(ephemeral=True)
 
     bookings = load_bookings()
+
     target = None
-
     for bk in bookings:
-        try:
-            if int(bk.get("id", 0)) == booking_id:
-                target = bk
-                break
-        except:
-            pass
+        if bk["id"] == str(booking_id):
+            target = bk
+            break
 
-    if target is None:
-        await interaction.response.send_message("❌ ไม่พบ booking id นี้", ephemeral=True)
-        await dm_user(buddy_id_str, "❌ ไม่พบ booking id นี้เลยครับ")
+    if not target:
+        await interaction.followup.send(
+            "ไม่พบ booking id นี้ครับ",
+            ephemeral=True,
+        )
         return
 
-    if target.get("buddy_id") != buddy_id_str:
-        await interaction.response.send_message("⚠️ คุณไม่ใช่ Buddy ของคิวนี้", ephemeral=True)
-        await dm_user(buddy_id_str, "⚠️ คุณไม่ใช่ Buddy เจ้าของคิวนี้ครับ")
+    if target["buddy_id"] != buddy_id:
+        await interaction.followup.send(
+            "คุณไม่ใช่ Buddy ของคิวนี้ครับ",
+            ephemeral=True,
+        )
         return
 
-    if target.get("status") == "CONFIRMED":
-        await interaction.response.send_message("ℹ️ คิวนี้ถูกยืนยันไปแล้ว", ephemeral=True)
-        await dm_user(buddy_id_str, "ℹ️ คิวนี้ถูกยืนยันไปก่อนหน้าแล้วครับ")
+    if target["status"] == "CONFIRMED":
+        await interaction.followup.send(
+            "คิวนี้ถูกยืนยันไปก่อนแล้วครับ",
+            ephemeral=True,
+        )
         return
 
     target["status"] = "CONFIRMED"
     save_bookings(bookings)
 
-    slot_time = target.get("slot_time", "")
-    update_buddy_status(buddy_id_str, slot_time, "CONFIRMED")
+    update_buddy_status(buddy_id, target["slot_time"], "CONFIRMED")
 
-    # DM Budder
+    budder_id = target["budder_id"]
+    budder_name = target["budder_name"]
+    budder_mention = f"<@{budder_id}>"
+
+    # DM ถึง Budder แจ้งชื่อ Buddy
     await dm_user(
-        target.get("budder_id", ""),
-        f"✅ คิว Buddy ของคุณได้รับการยืนยันแล้ว!\n"
-        f"Buddy: {target.get('buddy_name','')}\n"
-        f"เวลา: {target.get('time','')}\n"
-        f"หัวข้อ: {target.get('topic','')}"
+        budder_id,
+        "✅ คิว Buddy ของคุณได้รับการยืนยันแล้ว!\n\n"
+        f"Buddy: {target['buddy_name']} ({buddy_mention})\n"
+        f"Budder: {budder_name} ({budder_mention})\n"
+        f"เวลา: {target['time']}\n"
+        f"หัวข้อ: {target['topic']}"
     )
 
-    # DM Buddy
+    # DM ถึง Buddy
     await dm_user(
-        buddy_id_str,
-        f"✅ คุณได้ยืนยันคิวหมายเลข `{booking_id}` เรียบร้อยแล้วครับ!"
+        buddy_id,
+        f"คุณได้ยืนยัน booking {booking_id} เรียบร้อยแล้วครับ\n"
+        f"Budder: {budder_name} ({budder_mention})\n"
+        f"เวลา: {target['time']}\n"
+        f"หัวข้อ: {target['topic']}"
     )
 
-    await interaction.response.send_message(
-        f"✅ ยืนยัน booking `{booking_id}` แล้ว",
+    await interaction.followup.send(
+        "ยืนยันคิวสำเร็จแล้วครับ!",
         ephemeral=True,
     )
 
-# ---------------------------------------------------
-# Weekly Announcement DM (เฉพาะ role leader & people)
-# ---------------------------------------------------
+# =================================================
+# /cancel_booking
+# =================================================
+
+@bot.tree.command(
+    name="cancel_booking",
+    description="ยกเลิกคิวที่จองไว้ พร้อมใส่เหตุผลให้เพื่อนรู้",
+    guild=GUILD_OBJ,
+)
+@app_commands.describe(
+    booking_id="หมายเลข booking ที่ต้องการยกเลิก",
+    reason="เหตุผลสั้น ๆ ที่อยากฝากบอกอีกฝ่าย (จำเป็นต้องใส่)",
+)
+async def cancel_booking(
+    interaction: discord.Interaction,
+    booking_id: int,
+    reason: str,
+):
+    user = interaction.user
+    user_id = str(user.id)
+    user_mention = f"<@{user_id}>"
+
+    await interaction.response.defer(ephemeral=True)
+
+    bookings = load_bookings()
+
+    target = None
+    for bk in bookings:
+        if bk["id"] == str(booking_id):
+            target = bk
+            break
+
+    if not target:
+        await interaction.followup.send(
+            "ไม่พบ booking id นี้ครับ",
+            ephemeral=True,
+        )
+        return
+
+    buddy_id = target["buddy_id"]
+    budder_id = target["budder_id"]
+    buddy_name = target["buddy_name"]
+    budder_name = target["budder_name"]
+    buddy_mention = f"<@{buddy_id}>"
+    budder_mention = f"<@{budder_id}>"
+    slot_time = target.get("slot_time", "")
+
+    # อนุญาตเฉพาะ Buddy หรือ Budder
+    if user_id not in (buddy_id, budder_id):
+        await interaction.followup.send(
+            "คุณไม่ใช่คนในคิวนี้ จึงไม่สามารถยกเลิกได้ครับ",
+            ephemeral=True,
+        )
+        return
+
+    if target["status"] == "CANCELLED":
+        await interaction.followup.send(
+            "คิวนี้ถูกยกเลิกไปก่อนแล้วครับ",
+            ephemeral=True,
+        )
+        return
+
+    # บันทึกสถานะเป็น CANCELLED
+    target["status"] = "CANCELLED"
+    save_bookings(bookings)
+
+    # Buddy ยกเลิก -> ลบ slot ออกจาก buddies
+    if user_id == buddy_id:
+        if slot_time:
+            remove_buddy_slot(buddy_id, slot_time)
+
+        # DM ถึง Budder
+        await dm_user(
+            budder_id,
+            "❌ คิว Buddy ของคุณถูกยกเลิกแล้วนะครับ\n\n"
+            f"Buddy: {buddy_name} ({buddy_mention})\n"
+            f"Budder: {budder_name} ({budder_mention})\n"
+            f"Booking ID: {booking_id}\n"
+            f"เวลา: {target['time']}\n"
+            f"หัวข้อ: {target['topic']}\n"
+            f"เหตุผลจาก Buddy: {reason}"
+        )
+
+        # DM ยืนยันกลับไปที่ Buddy
+        await dm_user(
+            buddy_id,
+            "ซินหมิงยกเลิกคิวให้เรียบร้อยแล้วครับ\n\n"
+            f"คุณ: {buddy_name} ({buddy_mention})\n"
+            f"Budder: {budder_name} ({budder_mention})\n"
+            f"Booking ID: {booking_id}\n"
+            f"เหตุผลที่แจ้งไป: {reason}"
+        )
+
+    else:
+        # Budder ยกเลิก -> ปล่อย slot ให้ AVAILABLE
+        if slot_time:
+            update_buddy_status(buddy_id, slot_time, "AVAILABLE")
+
+        # DM ถึง Buddy
+        await dm_user(
+            buddy_id,
+            "❌ คิวที่ถูกจองไว้กับคุณถูกยกเลิกแล้วครับ\n\n"
+            f"Buddy: {buddy_name} ({buddy_mention})\n"
+            f"Budder: {budder_name} ({budder_mention})\n"
+            f"Booking ID: {booking_id}\n"
+            f"เวลา: {target['time']}\n"
+            f"หัวข้อ: {target['topic']}\n"
+            f"เหตุผลจาก Budder: {reason}"
+        )
+
+        # DM ยืนยันกลับไปที่ Budder
+        await dm_user(
+            budder_id,
+            "ซินหมิงยกเลิกคิวให้เรียบร้อยแล้วครับ\n\n"
+            f"Buddy: {buddy_name} ({buddy_mention})\n"
+            f"คุณ: {budder_name} ({budder_mention})\n"
+            f"Booking ID: {booking_id}\n"
+            f"เหตุผลที่แจ้งไป: {reason}"
+        )
+
+    await interaction.followup.send(
+        f"ยกเลิกคิวหมายเลข {booking_id} สำเร็จแล้วครับ ซินหมิงแจ้งอีกฝ่ายให้เรียบร้อยแล้ว 📨",
+        ephemeral=True,
+    )
+
+# =================================================
+# Background Tasks (เทสต์: weekday()==5, hour==15,...)
+# =================================================
 
 async def weekly_announcement_dm():
     await bot.wait_until_ready()
-
     while not bot.is_closed():
         now = datetime.now()
 
-        if now.weekday() == 6 and now.hour == 10 and now.minute == 45:
+        # เทสต์: ศุกร์ 15:00
+        if now.weekday() == 5 and now.hour == 15 and now.minute == 0:
             msg = (
                 "🌤 **สวัสดีเช้าวันอาทิตย์นะครับ!**\n\n"
                 "กำลังจะเริ่มต้นสัปดาห์ใหม่แล้ว ซินหมิงอยากชวนคุณมาวางแผนล่วงหน้า ✨\n\n"
@@ -501,65 +633,75 @@ async def weekly_announcement_dm():
                 "ขอให้เริ่มสัปดาห์ใหม่อย่างมีพลังนะครับ 💙\n"
                 "— ซินหมิง 🧘‍♂️"
             )
-
-            for guild in bot.guilds:
-                if guild.id != GUILD_ID:
-                    continue
-
-                for member in guild.members:
-                    if member.bot:
-                        continue
-
-                    # ตรวจ role
-                    has_role = any(
-                        (role.name.lower() in ROLES_TO_NOTIFY)
-                        for role in member.roles
-                    )
-                    if not has_role:
-                        continue
-
-                    try:
-                        dm = await member.create_dm()
-                        file = discord.File("sunday.gif")  # ไฟล์ GIF ที่อยู่ในโฟลเดอร์เดียวกับ bot.py
-                        await dm.send(msg, file=file)
-
-                    except discord.Forbidden:
-                        continue
-                    except Exception as e:
-                        print(f"Error DM to {member.id}: {e}")
-
+            await dm_roles(msg, "hello.gif")
             await asyncio.sleep(60)
 
         await asyncio.sleep(30)
 
-# ---------------------------------------------------
+async def daily_available_buddies_dm():
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        now = datetime.now()
+
+        # เทสต์: ศุกร์ 15:05
+        if now.weekday() == 5 and now.hour == 15 and now.minute == 5:
+            buddies = load_buddies()
+            available = [b for b in buddies if is_available_status(b["status"])]
+
+            if available:
+                msg = "⏰ **อัปเดต 17:00**\nBuddy ที่ยังว่าง:\n\n"
+                for b in available:
+                    buddy_mention = f"<@{b['user_id']}>" if b["user_id"].isdigit() else b["user_id"]
+                    msg += f"• {b['name']} ({buddy_mention}) | {b['time']} | {b['topic']}\n"
+            else:
+                msg = "⏰ 17:00 — วันนี้ไม่มี Buddy ที่ว่างแล้วนะครับ 💙"
+
+            await dm_roles(msg)
+            await asyncio.sleep(60)
+
+        await asyncio.sleep(30)
+
+async def nightly_close_dm():
+    """ปิดรับคิวเวลา 20:00 น. (ตอนนี้ตั้งเวลาไว้เทสต์)"""
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        now = datetime.now()
+
+        # เทสต์: ศุกร์ 15:08
+        if now.weekday() == 5 and now.hour == 15 and now.minute == 8:
+            msg = (
+                "🌙 **ซินหมิงขอตัวไปพักแล้วนะครับ**\n"
+                "วันนี้ปิดรับการจองแล้วน้า 💙😴"
+            )
+            await dm_roles(msg, "bye.gif")
+            await asyncio.sleep(60)
+
+        await asyncio.sleep(30)
+
+# =================================================
 # on_ready
-# ---------------------------------------------------
+# =================================================
 
 @bot.event
 async def on_ready():
-    cleanup_old_file(BUDDIES_CSV_PATH, max_age_days=14)
-    cleanup_old_file(BOOKINGS_CSV_PATH, max_age_days=14)
-
-    # Sync global เพื่อเคลียร์คำสั่งเก่า
-    try:
-        g = await bot.tree.sync()
-        print(f"Synced {len(g)} GLOBAL commands")
-    except Exception as e:
-        print(f"Global sync failed: {e}")
-
-    # Sync เฉพาะ guild
-    synced = await bot.tree.sync(guild=GUILD_OBJ)
-    print(f"Synced {len(synced)} GUILD commands to guild {GUILD_ID}")
-
     print(f"Logged in as {bot.user}")
 
-    # เริ่ม task weekly DM
-    bot.loop.create_task(weekly_announcement_dm())
+    # Reset CSV ทุกครั้งที่เริ่มรัน (ถ้าไม่อยากรีเซ็ตทุกครั้ง ค่อยเอาออกทีหลัง)
+    reset_csv(BUDDIES_CSV_PATH, BUDDY_FIELDS)
+    reset_csv(BOOKINGS_CSV_PATH, BOOKING_FIELDS)
 
-# ---------------------------------------------------
+    # Sync commands ให้ guild เดียวนี้
+    synced = await bot.tree.sync(guild=GUILD_OBJ)
+    print("Synced commands:", [c.name for c in synced])
+
+    # Start background tasks
+    bot.loop.create_task(weekly_announcement_dm())
+    bot.loop.create_task(daily_available_buddies_dm())
+    bot.loop.create_task(nightly_close_dm())
+
+# =================================================
 # Run Bot
-# ---------------------------------------------------
+# =================================================
 
 if __name__ == "__main__":
     print("Starting Xin Ming bot…")
