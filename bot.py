@@ -9,11 +9,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 
-<<<<<<< HEAD
 # ===== Load env only when .env exists =====
-=======
-# ===== Load env only when .env exists (local dev) =====
->>>>>>> 01a3395af38440235ef3b511be6135bd5ef24855
 if os.path.exists(".env"):
     load_dotenv()
 
@@ -22,7 +18,7 @@ GUILD_ID_ENV = os.getenv("GUILD_ID")
 
 if not TOKEN:
     raise RuntimeError("Missing DISCORD_TOKEN from environment variables")
-<<<<<<< HEAD
+
 if not GUILD_ID_ENV:
     raise RuntimeError("Missing GUILD_ID from environment variables")
 
@@ -31,22 +27,8 @@ GUILD_OBJ = discord.Object(id=GUILD_ID)
 
 # ===== Roles to notify =====
 ROLES_TO_NOTIFY = {"leader", "people"}
-# ROLES_TO_NOTIFY = {"test"}   # ใช้ role "test" ชั่วคราวสำหรับเทสต์
-
-# ===== CSV Storage =====
-=======
-
-if not GUILD_ID_ENV:
-    raise RuntimeError("Missing GUILD_ID from environment variables")
-
-GUILD_ID = int(GUILD_ID_ENV)
-GUILD_OBJ = discord.Object(id=GUILD_ID)
-
-# ===== Roles to notify by DM =====
-ROLES_TO_NOTIFY = {"leader", "people"}  # all lowercase for easy comparison
 
 # ===== CSV paths =====
->>>>>>> 01a3395af38440235ef3b511be6135bd5ef24855
 BASE_DIR = Path(__file__).parent
 BUDDIES_CSV_PATH = BASE_DIR / "buddies.csv"
 BOOKINGS_CSV_PATH = BASE_DIR / "bookings.csv"
@@ -641,7 +623,7 @@ async def weekly_announcement_dm():
     while not bot.is_closed():
         now = datetime.now()
 
-        if now.weekday() == 6 and now.hour == 10 and now.minute == 40:
+        if now.weekday() == 6 and now.hour == 11 and now.minute == 0:
             msg = (
                 "🌤 **สวัสดีเช้าวันอาทิตย์นะครับ!**\n\n"
                 "กำลังจะเริ่มต้นสัปดาห์ใหม่แล้ว ซินหมิงอยากชวนคุณมาวางแผนล่วงหน้า ✨\n\n"
