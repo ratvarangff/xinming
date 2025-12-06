@@ -32,8 +32,9 @@ jobs:
           print("Has GUILD_ID:", bool(os.getenv("GUILD_ID")))
           EOF
 
-      - name: Run bot (Auto-stop after 7 hours)
+      - name: Run bot (Auto-stop after 7 hours, reset DB)
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           GUILD_ID: ${{ secrets.GUILD_ID }}
+          RESET_DB_ON_START: "true"   # <--- ตัวนี้เอาไว้สั่งให้บอทล้าง database ตอนเริ่ม
         run: timeout 7h python bot.py
