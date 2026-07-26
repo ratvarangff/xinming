@@ -1,4 +1,1 @@
-﻿id,timestamp,buddy_id,buddy_name,budder_id,budder_name,time,topic,status,slot_time
-1,2025-12-28T14:38:58,1168857180225667114,ต.โต้ง,1090522189259874334,friend,อังคาร,ความสวยงามของธุรกิจ,CONFIRMED,อังคาร
-2,2025-12-28T11:45:53,993910971003322469,front,1278677206406795369,nan,20.00-21.00,BM,CONFIRMED,ศุกร์ 2/1/69
-3,2025-12-28T17:59:47,1278677206406795369,แนน,1095678524054061076,MRich_No.4,พุธ 31 14.00-17.00,BM,PENDING,พุธ 31 14.00-17.00
+﻿id,timestamp,coach_id,coach_name,coachee_id,coachee_name,time,topic,status

@@ -3,3 +3,7 @@
 *.env
 .env.*
 .env.local
+
+# Bot process files
+bot.pid
+logs/
